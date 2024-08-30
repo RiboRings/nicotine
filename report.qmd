@@ -1,0 +1,161 @@
+---
+title: "Nicotine Withdrawal in Alzheimer's Disease"
+editor: visual
+---
+
+```{r}
+#| include: false
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, fig.path = "plots/")
+
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(patchwork)
+library(emmeans)
+```
+
+```{r}
+nicotine <- read.csv("nicotine.csv")
+
+nicotine <- nicotine %>%
+  column_to_rownames(var = "id") %>%
+  separate(col = "group", into = c("Treatment", "Withdrawal"), remove = FALSE) %>%
+  mutate(Withdrawal = ifelse(is.na(Withdrawal), "CTR", Withdrawal))
+```
+
+```{r}
+epm_p <- ggplot(nicotine, aes(x = group, y = EPM, colour = group)) +
+  geom_boxplot() +
+  geom_point(size = 1) +
+  labs(y = "Open/Close Ratio", colour = "Group") +
+  theme_classic() +
+  theme(axis.title.x = element_blank(), axis.text.x = element_blank())
+
+mwm_p <- ggplot(nicotine, aes(x = group, y = MWM, colour = group)) +
+  geom_boxplot() +
+  geom_point(size = 1) +
+  labs(y = "Latency (s)", colour = "Group") +
+  theme_classic() +
+  theme(axis.title.x = element_blank(), axis.text.x = element_blank())
+
+pasta_p <- ggplot(nicotine, aes(x = group, y = PASTA, colour = group)) +
+  geom_boxplot() +
+  geom_point(size = 1) +
+  labs(y = "AUC Startle (g)", colour = "Group") +
+  theme_classic() +
+  theme(axis.title.x = element_blank(), axis.text.x = element_blank())
+```
+
+```{r}
+of_df <- nicotine %>%
+  pivot_longer(cols = c("OF1", "OF2", "OF3", "OF4"),
+               names_to = "Time", values_to = "OF") %>%
+    mutate(Time = 2 * (as.numeric(gsub("OF", "", Time)) - 1))
+
+nor_df <- nicotine %>%
+  pivot_longer(cols = c("NOR1", "NOR2", "NOR3", "NOR4"),
+               names_to = "Time", values_to = "NOR") %>%
+  mutate(Time = 2 * (as.numeric(gsub("NOR", "", Time)) - 1))
+```
+
+```{r}
+of_p <- ggplot(of_df, aes(x = Time, y = OF, group = group, colour = group)) +
+  geom_smooth() +
+  geom_jitter(width = 0.2, size = 1) +
+  lims(y = c(0, 0.5)) +
+  labs(y = "Center Time (%)") +
+  theme_classic() +
+  theme(axis.title.x = element_blank(), axis.text.x = element_blank(),
+        legend.position = "none")
+
+nor_p <- ggplot(nor_df, aes(x = Time, y = NOR, group = group, colour = group)) +
+  geom_smooth() +
+  geom_jitter(width = 0.2, size = 1) +
+  geom_hline(yintercept = 0.5, linetype = "dashed", colour = "red") +
+  lims(y = c(0, 1)) +
+  labs(x = "Time (weeks)", y = "Novel Object Exploration (%)") +
+  theme_classic() +
+  theme(legend.position = "none")
+```
+
+```{r}
+((of_p / nor_p) | (epm_p / mwm_p / pasta_p)) +
+  plot_layout(guides = "collect") +
+  plot_annotation(tag_levels = "A")
+```
+
+```{r}
+nor_fit <- lm(NOR ~ group + Time + group * Time, data = nor_df)
+summary(nor_fit)
+plot(nor_fit)
+```
+
+```{r}
+nor_emmeans <- emmeans(nor_fit, specs = pairwise ~ group | Time, adjust = "fdr")
+
+tmp_df1 <- nor_emmeans$emmeans %>%
+  as.data.frame()
+
+tmp_df2 <- nor_emmeans$contrasts %>%
+  summary(infer = TRUE) %>%
+  as.data.frame()
+```
+
+```{r}
+nor_p1 <- ggplot(subset(tmp_df1, Time == 3),
+       aes(x = group, y = emmean, fill = group)) +
+  geom_bar(stat = "identity") +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = 0.4) +
+  labs(y = "Mean Margin", fill = "Group") +
+  theme_classic() +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+nor_p2 <- ggplot(subset(tmp_df2, Time == 3), aes(x = estimate, y = contrast)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = lower.CL, xmax = upper.CL), height = 0.4) +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "red") +
+  xlim(x = c(-0.3, 0.3)) +
+  geom_text(aes(label = paste("P =", round(p.value, 3))), x = 0.3) +
+  theme_classic()
+
+(nor_p1 / nor_p2) +
+  plot_annotation(tag_levels = "A")
+```
+```{r}
+mwm_fit <- lm(MWM ~ group + OF4, data = nicotine)
+summary(mwm_fit)
+plot(mwm_fit)
+```
+
+```{r}
+mwm_emmeans <- emmeans(mwm_fit, specs = pairwise ~ group, adjust = "fdr")
+
+tmp_df1 <- mwm_emmeans$emmeans %>%
+  as.data.frame()
+
+tmp_df2 <- mwm_emmeans$contrasts %>%
+  summary(infer = TRUE) %>%
+  as.data.frame()
+```
+
+```{r}
+mwm_p1 <- ggplot(tmp_df1, aes(x = group, y = emmean, fill = group)) +
+  geom_bar(stat = "identity") +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = 0.4) +
+  labs(y = "Mean Margin", fill = "Group") +
+  theme_classic() +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+mwm_p2 <- ggplot(tmp_df2, aes(x = estimate, y = contrast)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = lower.CL, xmax = upper.CL), height = 0.4) +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "red") +
+  xlim(x = c(-60, 40)) +
+  geom_text(aes(label = paste("P =", round(p.value, 3))), x = 40) +
+  theme_classic()
+
+(mwm_p1 / mwm_p2) +
+  plot_annotation(tag_levels = "A")
+```
